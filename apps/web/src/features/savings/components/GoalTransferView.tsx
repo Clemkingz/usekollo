@@ -73,10 +73,13 @@ function TransferForm({ goal, kind }: { goal: Goal; kind: TransferKind }) {
 	const [submitting, setSubmitting] = useState(false);
 
 	// Deposits: what the wallet can spend now (XLM keeps its minimum balance and fees). Withdrawals: what the goal holds.
-	const available = deposit ? balances.spendable(goal.assetId) : goal.savedAmount;
-	const held = deposit ? balances.balance(goal.assetId) : goal.savedAmount;
+	// Anything shown is formatted, and formatting throws on a non-amount: only ever format checked values. The input
+	// is often empty or half-typed ("", "12."), and API balances are normalised too (a negative or malformed one is 0).
+	const available = displayable(deposit ? balances.spendable(goal.assetId) : goal.savedAmount);
+	const held = displayable(deposit ? balances.balance(goal.assetId) : goal.savedAmount);
 	const valid = isValidAmount(amount);
-	const shown = valid ? formatFixed(amount) : "0.00";
+	const typed = valid ? amount.trim() : "0";
+	const shown = formatFixed(typed);
 	const total =
 		deposit && goal.assetId === "XLM" && valid ? `${formatFixed(sum([amount, NETWORK_FEE_XLM]), 5)} XLM` : `~${shown} ${code}`;
 	const blocked = deposit && readiness.state !== "ready" && readiness.state !== "loading";
@@ -283,7 +286,7 @@ function TransferForm({ goal, kind }: { goal: Goal; kind: TransferKind }) {
 				onClose={() => !tx.isPending && setReviewing(false)}
 				onConfirm={confirm}
 				pending={tx.isPending}
-				amount={formatFixed(prepared?.amount ?? amount ?? "0")}
+				amount={formatFixed(displayable(prepared?.amount) ?? typed)}
 				code={code}
 				goalName={goal.name}
 				address={address ?? ""}
@@ -294,7 +297,7 @@ function TransferForm({ goal, kind }: { goal: Goal; kind: TransferKind }) {
 			<SubmittingDialog
 				kind={kind}
 				open={submitting}
-				amount={formatFixed(prepared?.amount || amount || "0")}
+				amount={formatFixed(displayable(prepared?.amount) ?? typed)}
 				code={code}
 				goalName={goal.name}
 			/>
@@ -302,7 +305,7 @@ function TransferForm({ goal, kind }: { goal: Goal; kind: TransferKind }) {
 			<TransferResultDialog
 				kind={kind}
 				outcome={outcome}
-				amount={formatAmount(tx.variables?.prepared.amount ?? (amount || "0"))}
+				amount={formatAmount(displayable(tx.variables?.prepared.amount) ?? typed)}
 				code={code}
 				goalName={goal.name}
 				goalHref={routes.goal(goal.id)}
@@ -429,6 +432,13 @@ function TransferSkeleton() {
 			</div>
 		</div>
 	);
+}
+
+/** A non-negative amount string safe to format, "0" for anything malformed, or null when there's no value at all. */
+function displayable(value: string | null | undefined): string | null {
+	if (value === null || value === undefined) return null;
+	const v = value.trim();
+	return /^\d+(\.\d{1,7})?$/.test(v) ? v : "0";
 }
 
 /** "150.0000000" → "150.00", "0.1250000" → "0.125": what a person would type. */
