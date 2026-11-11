@@ -1,0 +1,103 @@
+@import "@repo/ui/globals.css";
+
+/* Let Tailwind scan the shared UI package for the utility classes it uses,
+   since those components live in a separate workspace package. */
+@source "../../../../packages/ui/src/**/*.{ts,tsx}";
+
+/* Light theme (UseKollo landing + auth designs). shadcn's variables are mapped so Radix primitives (dialog, sheet,
+   dropdown, popover) match without per-component overrides. */
+:root {
+	--background: #f9f9f9;
+	--foreground: #212121;
+	--card: #ffffff;
+	--card-foreground: #212121;
+	--popover: #ffffff;
+	--popover-foreground: #212121;
+	--primary: #0329e9;
+	--primary-foreground: #ffffff;
+	--secondary: #f4f4f4;
+	--secondary-foreground: #212121;
+	--muted: #f4f4f4;
+	--muted-foreground: #8c8c8c;
+	--accent: #eef1fe;
+	--accent-foreground: #212121;
+	--border: #e6e6e6;
+	--input: #bdbdbd;
+	--ring: #0329e9;
+	color-scheme: light;
+}
+
+/* Unlayered on purpose: the shared stylesheet's `body` rule is unlayered too. */
+body {
+	background-color: var(--color-page);
+	color: var(--color-ink);
+}
+
+/* Page frame (landing design: 1440 artboard, 72px side margins → 1296px content). */
+@utility app-container {
+	@apply mx-auto w-full max-w-[1376px] px-4 sm:px-6 lg:px-10;
+}
+
+@utility skeleton-shimmer {
+	@apply relative overflow-hidden bg-ink/[0.06];
+	&::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		transform: translateX(-100%);
+		background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.7), transparent);
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.skeleton-shimmer::after {
+		animation: scan 1.6s ease-in-out infinite;
+	}
+}
+
+/* Brand loader: the logo mark breathing inside an orbiting ring (app/loading.tsx). */
+@keyframes orbit {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes breathe {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	50% {
+		transform: scale(0.92);
+		opacity: 0.85;
+	}
+}
+@media (prefers-reduced-motion: no-preference) {
+	.animate-orbit {
+		animation: orbit 1.4s linear infinite;
+	}
+	.animate-breathe {
+		animation: breathe 1.8s ease-in-out infinite;
+	}
+}
+
+/* A wrong code: one short horizontal shake. */
+@keyframes shake {
+	0%,
+	100% {
+		transform: none;
+	}
+	20%,
+	60% {
+		transform: translateX(-6px);
+	}
+	40%,
+	80% {
+		transform: translateX(6px);
+	}
+}
+@media (prefers-reduced-motion: no-preference) {
+	.animate-shake {
+		animation: shake 0.4s ease-in-out;
+	}
+}
