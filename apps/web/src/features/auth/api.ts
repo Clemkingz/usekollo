@@ -1,231 +1,140 @@
 "use client";
 
-import { AuthError, type AuthUser, type CodePurpose, type CodeSent } from "@/features/auth/types";
+import { api, ApiError } from "@/lib/api/client";
+import type { AuthTokensDto, MeDto, OtpIssuedDto, RegisterResultDto } from "@/lib/api/types";
+import { useSessionStore } from "@/features/auth/store";
+import type { AuthUser, CodePurpose, CodeSent } from "@/features/auth/types";
 
 /**
- * Account API (email + password, emailed one-time codes). docs/DECISIONS.md D7: UseKollo has no auth backend yet, so
- * this is an IN-BROWSER MOCK with the shape a real API would have. It is not security: everything lives in this
- * browser's localStorage. Replace `authApi` with HTTP calls when the backend exists; screens only use `authApi`.
- *
- * Mock rules (keep them when the real API lands): passwords salted + PBKDF2-hashed; codes are 6 digits, hashed, valid
- * 10 minutes, 5 attempts, a new one at most every 30 s; "forgot password" answers the same whether or not the email
- * exists.
- * Since no email is sent, the code is shown in a "Demo inbox" toast.
+ * Accounts on the UseKollo API (DECISIONS D7): email + password, emailed 6-digit codes (10 minutes, five tries, a new
+ * one every 60 s). Sign-up doesn't sign in: confirming the email code does. Unverified accounts can't sign in; the
+ * API emails them a fresh code and answers 403, which `signIn` turns into `EmailNotVerifiedError`.
  */
 
-export interface AuthApi {
-	/** Creates the account (email unverified), signs it in, and emails a verification code. */
-	signUp(email: string, password: string): Promise<{ user: AuthUser; sent: CodeSent }>;
-	/** Unverified accounts can sign in too; the app keeps asking them to verify (Account Created design). */
-	signIn(email: string, password: string): Promise<AuthUser>;
-	/** Sends a code; within the 30 s resend window it returns the code already sent instead of sending another. */
-	sendCode(email: string, purpose: CodePurpose): Promise<CodeSent>;
-	verifyEmail(email: string, code: string): Promise<AuthUser>;
-	requestPasswordReset(email: string): Promise<CodeSent>;
-	/** Exchanges a reset code for a short-lived reset token. */
-	verifyResetCode(email: string, code: string): Promise<{ resetToken: string }>;
-	resetPassword(resetToken: string, password: string): Promise<void>;
-}
-
-const CODE_TTL_MS = 10 * 60_000;
-const RESEND_AFTER_MS = 30_000;
-const MAX_ATTEMPTS = 5;
-const RESET_TOKEN_TTL_MS = 15 * 60_000;
-const DB_KEY = "usekollo-mock-auth";
-
-interface StoredUser extends AuthUser {
-	salt: string;
-	passwordHash: string;
-}
-interface StoredCode {
-	email: string;
-	purpose: CodePurpose;
-	codeHash: string;
-	expiresAt: number;
-	resendAt: number;
-	attempts: number;
-}
-interface Db {
-	users: StoredUser[];
-	codes: StoredCode[];
-	resetTokens: { token: string; email: string; expiresAt: number }[];
-}
-
-const load = (): Db => {
-	try {
-		const raw = localStorage.getItem(DB_KEY);
-		if (raw) return JSON.parse(raw) as Db;
-	} catch {
-		// fall through to an empty DB
+/** Sign-in with the right password on an account whose email isn't confirmed yet. A code is on its way. */
+export class EmailNotVerifiedError extends Error {
+	/** The code the API just emailed (10 minutes; a new one after 60 s). */
+	readonly sent: CodeSent;
+	constructor(readonly email: string) {
+		super("Confirm your email to finish signing in. We’ve sent you a new code.");
+		this.sent = sentInfo(email, "verify_email", { otpExpiresInSeconds: 600, resendAfterSeconds: 60 });
 	}
-	return { users: [], codes: [], resetTokens: [] };
-};
-const save = (db: Db) => localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
+
+const toUser = (me: MeDto): AuthUser => ({
+	id: me.id,
+	email: me.email,
+	name: me.name,
+	walletAddress: me.walletAddress,
+	createdAt: me.createdAt,
+});
+
+const sentInfo = (email: string, purpose: CodePurpose, issued: OtpIssuedDto): CodeSent => ({
+	email,
+	purpose,
+	expiresAt: new Date(Date.now() + issued.otpExpiresInSeconds * 1000).toISOString(),
+	resendAt: new Date(Date.now() + issued.resendAfterSeconds * 1000).toISOString(),
+});
 
 const normalize = (email: string) => email.trim().toLowerCase();
-const wait = (ms = 600) => new Promise((r) => setTimeout(r, ms));
-const hex = (buf: ArrayBuffer) => Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
-const randomHex = (bytes: number) => hex(crypto.getRandomValues(new Uint8Array(bytes)).buffer);
 
-async function hashPassword(password: string, salt: string) {
-	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
-	const bits = await crypto.subtle.deriveBits(
-		{ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 210_000 },
-		key,
-		256,
-	);
-	return hex(bits);
-}
-const sha256 = async (value: string) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
-
-const publicUser = ({ id, email, emailVerified, createdAt }: StoredUser): AuthUser => ({ id, email, emailVerified, createdAt });
-
-/** Mock delivery: no email service, so the code appears in a toast. */
-async function deliver(email: string, code: string, purpose: CodePurpose) {
-	const { notify } = await import("@/lib/use-toast");
-	notify.info(
-		`Demo inbox: your code is ${code}`,
-		`${purpose === "verify_email" ? "Email verification" : "Password reset"} for ${email}. Emails aren’t sent yet.`,
-		20_000,
-	);
-}
-
-async function issueCode(db: Db, email: string, purpose: CodePurpose, { force = false } = {}): Promise<CodeSent> {
-	const now = Date.now();
-	const existing = db.codes.find((c) => c.email === email && c.purpose === purpose);
-	if (existing && !force && existing.resendAt > now && existing.expiresAt > now)
-		return {
-			email,
-			purpose,
-			expiresAt: new Date(existing.expiresAt).toISOString(),
-			resendAt: new Date(existing.resendAt).toISOString(),
-		};
-	const code = String(crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000).padStart(6, "0");
-	const entry: StoredCode = {
-		email,
-		purpose,
-		codeHash: await sha256(`${purpose}:${email}:${code}`),
-		expiresAt: now + CODE_TTL_MS,
-		resendAt: now + RESEND_AFTER_MS,
-		attempts: 0,
-	};
-	db.codes = [...db.codes.filter((c) => !(c.email === email && c.purpose === purpose)), entry];
-	save(db);
-	void deliver(email, code, purpose);
-	return { email, purpose, expiresAt: new Date(entry.expiresAt).toISOString(), resendAt: new Date(entry.resendAt).toISOString() };
-}
-
-async function checkCode(db: Db, email: string, purpose: CodePurpose, code: string) {
-	const entry = db.codes.find((c) => c.email === email && c.purpose === purpose);
-	if (!entry) throw new AuthError("code_expired", "That code has expired. Ask for a new one.", "code");
-	if (entry.expiresAt < Date.now()) throw new AuthError("code_expired", "That code has expired. Ask for a new one.", "code");
-	if (entry.attempts >= MAX_ATTEMPTS) throw new AuthError("too_many_attempts", "Too many tries. Ask for a new code.", "code");
-	if (entry.codeHash !== (await sha256(`${purpose}:${email}:${code}`))) {
-		entry.attempts += 1;
-		save(db);
-		const left = MAX_ATTEMPTS - entry.attempts;
-		throw new AuthError(
-			left > 0 ? "invalid_code" : "too_many_attempts",
-			left > 0 ? `That code isn’t right. ${left} ${left === 1 ? "try" : "tries"} left.` : "Too many tries. Ask for a new code.",
-			"code",
-		);
+/** Stores the tokens, loads the profile, and signs in. */
+async function startSession(tokens: AuthTokensDto) {
+	const store = useSessionStore.getState();
+	store.setTokens(tokens);
+	try {
+		const user = toUser(await api<MeDto>("/auth/me"));
+		store.signIn(tokens, user);
+		return user;
+	} catch (error) {
+		store.clear();
+		throw error;
 	}
-	db.codes = db.codes.filter((c) => c !== entry);
-	save(db);
 }
 
-export const authApi: AuthApi = {
-	async signUp(rawEmail, password) {
-		await wait();
-		const email = normalize(rawEmail);
-		const db = load();
-		const existing = db.users.find((u) => u.email === email);
-		if (existing?.emailVerified)
-			throw new AuthError("email_taken", "An account with this email already exists. Log in instead.", "email");
-		const salt = randomHex(16);
-		const user: StoredUser = {
-			id: existing?.id ?? crypto.randomUUID(),
-			email,
-			emailVerified: false,
-			createdAt: existing?.createdAt ?? new Date().toISOString(),
-			salt,
-			passwordHash: await hashPassword(password, salt),
-		};
-		db.users = [...db.users.filter((u) => u.email !== email), user];
-		save(db);
-		return { user: publicUser(user), sent: await issueCode(db, email, "verify_email", { force: true }) };
+export const authApi = {
+	async signUp(name: string, email: string, password: string): Promise<CodeSent> {
+		const res = await api<RegisterResultDto>("/auth/register", {
+			method: "POST",
+			auth: false,
+			body: { name: name.trim(), email: normalize(email), password },
+		});
+		return sentInfo(res.email, "verify_email", res);
 	},
 
-	async signIn(rawEmail, password) {
-		await wait();
-		const email = normalize(rawEmail);
-		const db = load();
-		const user = db.users.find((u) => u.email === email);
-		// Same answer for an unknown email and a wrong password.
-		if (!user || user.passwordHash !== (await hashPassword(password, user.salt)))
-			throw new AuthError("invalid_credentials", "That email and password don’t match an account.");
-		return publicUser(user);
+	/** Confirms the sign-up code and signs in. */
+	async verifyEmail(email: string, otp: string) {
+		const tokens = await api<AuthTokensDto>("/auth/verify-email", {
+			method: "POST",
+			auth: false,
+			body: { email: normalize(email), otp },
+		});
+		return startSession(tokens);
 	},
 
-	async sendCode(rawEmail, purpose) {
-		await wait(400);
-		const email = normalize(rawEmail);
-		const db = load();
-		if (!db.users.some((u) => u.email === email)) {
-			// Unknown email: look the same as a real send (no account enumeration).
-			const now = Date.now();
-			return {
-				email,
-				purpose,
-				expiresAt: new Date(now + CODE_TTL_MS).toISOString(),
-				resendAt: new Date(now + RESEND_AFTER_MS).toISOString(),
-			};
+	async signIn(email: string, password: string) {
+		try {
+			const tokens = await api<AuthTokensDto>("/auth/login", {
+				method: "POST",
+				auth: false,
+				body: { email: normalize(email), password },
+			});
+			return await startSession(tokens);
+		} catch (error) {
+			if (error instanceof ApiError && error.status === 403) throw new EmailNotVerifiedError(normalize(email));
+			if (error instanceof ApiError && error.status === 401)
+				throw new ApiError("That email and password don’t match an account.", 401, error.code);
+			throw error;
 		}
-		return issueCode(db, email, purpose);
 	},
 
-	async verifyEmail(rawEmail, code) {
-		await wait();
-		const email = normalize(rawEmail);
-		const db = load();
-		await checkCode(db, email, "verify_email", code);
-		const user = db.users.find((u) => u.email === email);
-		if (!user) throw new AuthError("code_expired", "That code has expired. Ask for a new one.", "code");
-		user.emailVerified = true;
-		save(db);
-		return publicUser(user);
+	/** A new sign-up code (always answers the same, so it doesn't reveal which emails have accounts). */
+	async resendVerification(email: string): Promise<CodeSent> {
+		const res = await api<OtpIssuedDto>("/auth/resend-otp", { method: "POST", auth: false, body: { email: normalize(email) } });
+		return sentInfo(normalize(email), "verify_email", res);
 	},
 
-	async requestPasswordReset(rawEmail) {
-		return this.sendCode(rawEmail, "reset_password");
+	/** Emails a reset code to a verified account (same answer whether or not it exists). */
+	async requestPasswordReset(email: string): Promise<CodeSent> {
+		const res = await api<OtpIssuedDto>("/auth/forgot-password", {
+			method: "POST",
+			auth: false,
+			body: { email: normalize(email) },
+		});
+		return sentInfo(normalize(email), "reset_password", res);
 	},
 
-	async verifyResetCode(rawEmail, code) {
-		await wait();
-		const email = normalize(rawEmail);
-		const db = load();
-		await checkCode(db, email, "reset_password", code);
-		const resetToken = randomHex(24);
-		db.resetTokens = [
-			...db.resetTokens.filter((t) => t.email !== email),
-			{ token: resetToken, email, expiresAt: Date.now() + RESET_TOKEN_TTL_MS },
-		];
-		save(db);
-		return { resetToken };
+	/** Sets the new password with the emailed code. Signs out every session. */
+	async resetPassword(email: string, otp: string, newPassword: string) {
+		await api("/auth/reset-password", { method: "POST", auth: false, body: { email: normalize(email), otp, newPassword } });
 	},
 
-	async resetPassword(resetToken, password) {
-		await wait();
-		const db = load();
-		const entry = db.resetTokens.find((t) => t.token === resetToken);
-		const user = entry && db.users.find((u) => u.email === entry.email);
-		if (!entry || !user || entry.expiresAt < Date.now())
-			throw new AuthError("reset_expired", "This reset has expired. Start again from “Forgot password”.");
-		user.salt = randomHex(16);
-		user.passwordHash = await hashPassword(password, user.salt);
-		// Proving access to the inbox also confirms the email.
-		user.emailVerified = true;
-		db.resetTokens = db.resetTokens.filter((t) => t !== entry);
-		save(db);
+	async me() {
+		const user = toUser(await api<MeDto>("/auth/me"));
+		useSessionStore.getState().setUser(user);
+		return user;
+	},
+
+	async updateName(name: string) {
+		const user = toUser(await api<MeDto>("/auth/me", { method: "PATCH", body: { name: name.trim() } }));
+		useSessionStore.getState().setUser(user);
+		return user;
+	},
+
+	/** Signs out every other session. */
+	async changePassword(currentPassword: string, newPassword: string) {
+		await api("/auth/change-password", { method: "POST", body: { currentPassword, newPassword } });
+	},
+
+	/** Ends this session on the server (always succeeds locally). */
+	async signOut() {
+		const refreshToken = useSessionStore.getState().tokens?.refreshToken;
+		useSessionStore.getState().clear();
+		if (refreshToken) await api("/auth/logout", { method: "POST", auth: false, body: { refreshToken } }).catch(() => undefined);
+	},
+
+	async signOutEverywhere() {
+		await api("/auth/logout-all", { method: "POST" });
+		useSessionStore.getState().clear();
 	},
 };

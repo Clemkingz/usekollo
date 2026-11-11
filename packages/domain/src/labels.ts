@@ -7,26 +7,31 @@ import type { GoalBadge } from "./goal-status";
  */
 
 export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
-	active: "In progress",
+	pending: "Waiting to open",
+	active: "Ongoing",
 	completed: "Completed",
-	overdue: "Past target date",
+	overdue: "Past due",
+	closed: "Closed",
 };
 
 export const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
-	deposit: "Savings added",
+	open: "Goal opened",
+	deposit: "Deposit",
 	withdrawal: "Withdrawal",
+	close: "Goal closed",
 };
 
 /** Dashboard design wording (shown uppercase in badges). */
 export const TX_STATUS_LABEL: Record<TxStatus, string> = {
-	pending: "Pending",
+	pending: "Processing",
 	confirmed: "Success",
 	failed: "Failed",
-	unknown: "Check status",
 };
 
 export const GOAL_BADGE_LABEL: Record<GoalBadge, string> = {
 	running: "Running",
 	urgent: "Urgent",
 	done: "Done",
+	setup: "Setup",
+	closed: "Closed",
 };

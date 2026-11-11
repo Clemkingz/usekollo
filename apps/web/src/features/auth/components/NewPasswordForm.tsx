@@ -1,24 +1,30 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/button";
+import { ApiError } from "@/lib/api/client";
 import { routes } from "@/lib/routes";
 import { notify } from "@/lib/use-toast";
 import { TextField } from "@/components/forms/TextField";
 import { authApi } from "@/features/auth/api";
 import { newPasswordSchema, type NewPasswordInput } from "@/features/auth/schema";
 import { useResetStore } from "@/features/auth/store";
-import { AuthError } from "@/features/auth/types";
 import { CardFootnote } from "@/features/auth/components/AuthShell";
 import { KeyIntegrity } from "@/features/auth/components/KeyIntegrity";
 
-/** Create New password (design). Only reachable with a verified reset code; otherwise it asks to start again. */
+/**
+ * Create New password (design). Sends the new password with the reset code from the previous step; the API checks
+ * the code here, so a wrong or expired code sends the user back to ask for a new one.
+ */
 export function NewPasswordForm() {
 	const router = useRouter();
-	const token = useResetStore((s) => s.token);
+	const email = useResetStore((s) => s.email);
+	const code = useResetStore((s) => s.code);
+	const [badCode, setBadCode] = useState(false);
 	const form = useForm<NewPasswordInput>({
 		resolver: zodResolver(newPasswordSchema),
 		defaultValues: { password: "", confirmPassword: "" },
@@ -26,25 +32,30 @@ export function NewPasswordForm() {
 	const password = useWatch({ control: form.control, name: "password" });
 
 	const onSubmit = form.handleSubmit(async ({ password }) => {
+		if (!email || !code) return;
 		try {
-			await authApi.resetPassword(token!, password);
+			await authApi.resetPassword(email, code, password);
 			useResetStore.getState().clear();
 			notify.success("Password updated", "Log in with your new password.");
 			router.replace(routes.signIn());
 		} catch (error) {
-			if (error instanceof AuthError && error.code === "reset_expired") useResetStore.getState().clear();
-			notify.fromError(error);
+			if (error instanceof ApiError && error.status === 400 && /code/i.test(error.message)) {
+				useResetStore.getState().clear();
+				setBadCode(true);
+			} else notify.fromError(error);
 		}
 	});
 
-	if (!token)
+	if (badCode || !email || !code)
 		return (
-			<div className="text-center">
+			<div className="animate-rise text-center">
 				<p className="text-[15px] leading-6 text-ink/70">
-					For your security, this step needs a fresh reset code. Start again and we’ll email you one.
+					{badCode
+						? "That reset code is wrong or has expired. Ask for a new one and try again."
+						: "For your security, this step needs a fresh reset code. Start again and we’ll email you one."}
 				</p>
 				<Button asChild className="mt-8">
-					<Link href={routes.forgotPassword}>Start again</Link>
+					<Link href={routes.forgotPassword}>Get a new code</Link>
 				</Button>
 				<CardFootnote text="Already Registered?" linkText="Log In" href={routes.signIn()} />
 			</div>

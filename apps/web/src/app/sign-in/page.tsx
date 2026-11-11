@@ -3,7 +3,11 @@ import { Suspense } from "react";
 import { AuthCard, AuthShell } from "@/features/auth/components/AuthShell";
 import { SignInForm } from "@/features/auth/components/SignInForm";
 
-export const metadata: Metadata = { title: "Log in" };
+export const metadata: Metadata = {
+	title: "Log in",
+	description: "Log in to UseKollo to track your savings goals and activity.",
+	alternates: { canonical: "/sign-in" },
+};
 
 export default function SignInPage() {
 	return (

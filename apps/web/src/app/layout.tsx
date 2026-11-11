@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { DM_Sans, Inter, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "@repo/ui/sonner";
 import { ScrollReveal, ScrollRevealScript } from "@repo/ui/scroll-reveal";
+import { NetworkStatus } from "@/components/NetworkStatus";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { ConnectWalletDialog } from "@/features/wallet/components/ConnectWalletDialog";
 import { SHARE_DESCRIPTION, SITE_DESCRIPTION, SITE_KEYWORDS, SITE_NAME, SITE_TAGLINE, SITE_URL, THEME_COLOR } from "@/lib/site";
@@ -15,8 +16,9 @@ const jetbrains = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], v
 const TITLE = `${SITE_NAME} — ${SITE_TAGLINE}`;
 
 /**
- * App metadata. Icons and link previews come from file conventions in this folder (icon.png · apple-icon.png ·
- * opengraph-image.tsx · twitter-image.tsx). Pages set `title` → "%s | UseKollo".
+ * App metadata. Icons and link previews come from file conventions in this folder (favicon.ico · icon.png ·
+ * apple-icon.png · manifest.ts · opengraph-image.tsx · twitter-image.tsx). Pages set `title` → "%s | UseKollo";
+ * the signed-in app area is noindex (`app/(app)/layout.tsx`).
  */
 export const metadata: Metadata = {
 	metadataBase: SITE_URL,
@@ -24,14 +26,31 @@ export const metadata: Metadata = {
 	description: SITE_DESCRIPTION,
 	applicationName: SITE_NAME,
 	keywords: SITE_KEYWORDS,
+	authors: [{ name: SITE_NAME }],
+	creator: SITE_NAME,
+	publisher: SITE_NAME,
+	category: "finance",
+	alternates: { canonical: "/" },
 	// Amounts, dates and wallet addresses must not turn into tap-to-call or map links.
 	formatDetection: { telephone: false, email: false, address: false, date: false },
-	openGraph: { type: "website", locale: "en_US", siteName: SITE_NAME, title: TITLE, description: SHARE_DESCRIPTION, url: "/" },
+	appleWebApp: { capable: true, title: SITE_NAME, statusBarStyle: "default" },
+	openGraph: {
+		type: "website",
+		locale: "en_US",
+		siteName: SITE_NAME,
+		title: TITLE,
+		description: SHARE_DESCRIPTION,
+		url: "/",
+	},
 	twitter: { card: "summary_large_image", title: TITLE, description: SHARE_DESCRIPTION },
 };
 
 export const viewport: Viewport = {
-	themeColor: THEME_COLOR,
+	themeColor: [
+		{ media: "(prefers-color-scheme: light)", color: THEME_COLOR },
+		{ media: "(prefers-color-scheme: dark)", color: THEME_COLOR },
+	],
+	colorScheme: "light",
 	// Shrink the layout viewport when the keyboard opens instead of covering inputs.
 	interactiveWidget: "resizes-content",
 };
@@ -48,6 +67,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
 					{children}
 					{/* Mounted once; opened from anywhere with useWalletDialog / useRequireWallet. */}
 					<ConnectWalletDialog />
+					<NetworkStatus />
 					<Toaster
 						position="top-right"
 						closeButton

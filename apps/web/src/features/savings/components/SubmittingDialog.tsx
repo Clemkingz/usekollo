@@ -1,11 +1,11 @@
 "use client";
 
 import { Clock3 } from "lucide-react";
-import type { ActivityKind } from "@repo/domain/types";
+import type { TransferKind } from "@/features/savings/components/TransferResultDialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@repo/ui/dialog";
 
 /**
- * Submitting (design): shown after the wallet has signed, while Horizon answers. It can't be dismissed: closing it
+ * Submitting (design): shown after the wallet has signed, while UseKollo sends it to the network. It can't be dismissed: closing it
  * wouldn't stop the transaction, and the result dialog follows on its own.
  */
 export function SubmittingDialog({
@@ -15,7 +15,7 @@ export function SubmittingDialog({
 	code,
 	goalName,
 }: {
-	kind: ActivityKind;
+	kind: TransferKind;
 	open: boolean;
 	amount: string;
 	code: string;
@@ -41,7 +41,14 @@ export function SubmittingDialog({
 					Sending your signed transaction to the Stellar network. Please keep this open.
 				</DialogDescription>
 
-				<div className="mt-7 rounded-[18px] bg-page px-5 py-5 text-left" role="status" aria-live="polite">
+				<div
+					className="relative mt-7 overflow-hidden rounded-[18px] bg-page px-5 py-5 text-left"
+					role="status"
+					aria-live="polite"
+				>
+					<span aria-hidden className="absolute inset-x-0 top-0 h-0.5 overflow-hidden">
+						<span className="animate-scan block h-full w-1/3 rounded-full bg-primary-500" />
+					</span>
 					<p className="font-display text-sm text-ink/40">{deposit ? "Pending Deposit" : "Pending Withdrawal"}</p>
 					<p className="mt-2 flex items-baseline gap-2 text-ink">
 						<span className="font-display text-[44px] leading-none tracking-[-0.02em] tabular-nums md:text-[52px]">

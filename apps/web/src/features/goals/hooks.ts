@@ -1,35 +1,35 @@
 "use client";
 
-import { useMemo } from "react";
-import { summarizeGoal, todayISO } from "@repo/domain/goal-status";
-import type { GoalSummary } from "@repo/domain/types";
-import { useGoalsStore } from "@/features/goals/store";
-import type { CreateGoalInput } from "@/features/goals/schema";
+import { useQuery } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api/client";
+import { toGoal } from "@/lib/api/map";
+import { keys } from "@/lib/query-client";
+import { goalsApi } from "@/features/goals/api";
+import { useConnectedWallet } from "@/features/wallet/hooks";
 
-/** The owner's goals with derived saved amount, progress and status, newest first. */
-export function useGoals(owner: string | null): GoalSummary[] {
-	const goals = useGoalsStore((s) => s.goals);
-	const activity = useGoalsStore((s) => s.activity);
-	return useMemo(() => {
-		if (!owner) return [];
-		const today = todayISO();
-		return goals
-			.filter((g) => g.owner === owner)
-			.map((g) => summarizeGoal(g, activity, today))
-			.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-	}, [goals, activity, owner]);
+/**
+ * The account's goals (newest first), from the API. Waits for the linked wallet: goals belong to it. Screens get
+ * `goals` (empty while loading) plus the query's state for skeletons and errors.
+ */
+export function useGoals() {
+	const { address } = useConnectedWallet();
+	const query = useQuery({
+		queryKey: keys.goals,
+		queryFn: async () => (await goalsApi.list()).map(toGoal),
+		enabled: !!address,
+	});
+	return { ...query, goals: query.data ?? [] };
 }
 
-/** One goal, or null when it doesn't exist or belongs to another wallet. */
-export function useGoal(id: string, owner: string | null): GoalSummary | null {
-	return useGoals(owner).find((g) => g.id === id) ?? null;
-}
-
-export function useCreateGoal() {
-	const addGoal = useGoalsStore((s) => s.addGoal);
-	return (owner: string, input: CreateGoalInput) => {
-		const goal = { id: crypto.randomUUID(), owner, ...input, createdAt: new Date().toISOString() };
-		addGoal(goal);
-		return goal;
-	};
+/** One goal, refreshed from the network on each view. `notFound` when the API says it doesn't exist. */
+export function useGoal(id: string) {
+	const { address } = useConnectedWallet();
+	const query = useQuery({
+		queryKey: keys.goal(id),
+		queryFn: async () => toGoal(await goalsApi.get(id)),
+		enabled: !!address,
+		staleTime: 10_000,
+	});
+	const notFound = query.error instanceof ApiError && (query.error.status === 404 || query.error.status === 400);
+	return { ...query, goal: query.data ?? null, notFound };
 }

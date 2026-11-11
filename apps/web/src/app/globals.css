@@ -101,3 +101,60 @@ body {
 		animation: shake 0.4s ease-in-out;
 	}
 }
+
+/* ---------------------------------------------------------------------- */
+/* Savings motion (calm: things fill, settle and land; nothing bounces).   */
+/*   .animate-grow     a progress bar fills from 0 to its width on mount   */
+/*   .animate-ring-in  a progress ring draws from 0 to its value on mount  */
+/*   .animate-fill     the brand loader's ring filling like a goal, looped */
+/*   .animate-float    a slow drift for illustration pieces (404, errors)  */
+/* All off for reduced motion: final states render immediately.           */
+/* ---------------------------------------------------------------------- */
+@keyframes grow {
+	from {
+		width: 0;
+	}
+}
+@keyframes ring-in {
+	from {
+		stroke-dasharray: 0 1000;
+	}
+}
+@keyframes fill {
+	0% {
+		stroke-dashoffset: var(--c);
+		opacity: 1;
+	}
+	65% {
+		stroke-dashoffset: 0;
+		opacity: 1;
+	}
+	85%,
+	100% {
+		stroke-dashoffset: 0;
+		opacity: 0;
+	}
+}
+@keyframes float {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-8px);
+	}
+}
+@media (prefers-reduced-motion: no-preference) {
+	.animate-grow {
+		animation: grow 0.9s var(--ease-settle) both;
+	}
+	.animate-ring-in {
+		animation: ring-in 1s 0.1s var(--ease-settle) both;
+	}
+	.animate-fill {
+		animation: fill 1.9s var(--ease-settle) infinite;
+	}
+	.animate-float {
+		animation: float 4s ease-in-out infinite;
+	}
+}

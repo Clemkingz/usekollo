@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { ChevronDown, Plus } from "lucide-react";
-import type { GoalSummary } from "@repo/domain/types";
-import { ongoingProgress } from "@repo/domain/goal-status";
-import { formatFixed } from "@repo/domain/money";
+import type { Goal } from "@repo/domain/types";
+import { isOpen, ongoingProgress } from "@repo/domain/goal-status";
+import { formatFixed, toStroops } from "@repo/domain/money";
+import { AnimatedNumber } from "@repo/ui/animated-number";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -14,36 +15,34 @@ import {
 } from "@repo/ui/dropdown-menu";
 import { cn } from "@repo/ui/lib/utils";
 import { ASSETS } from "@/lib/stellar/config";
-import { useBalances } from "@/lib/stellar/horizon";
 import { useCreateGoalAction } from "@/components/layouts/AppSidebar";
+import { useBalances } from "@/features/wallet/hooks";
 
 /**
  * TOTAL BALANCE card (dashboard design): the wallet's balance in one asset (switch with the USDC ▾ pill), the
  * progress of unfinished goals in that asset, and what's left on the goal closest to done. Never mixes assets.
  */
 export function BalanceCard({
-	address,
 	goals,
 	pillInline = false,
 	className,
 }: {
-	address: string;
-	goals: GoalSummary[];
+	goals: Goal[];
 	/** Savings Goals design: the asset pill sits right after the amount instead of at the card's edge. */
 	pillInline?: boolean;
 	className?: string;
 }) {
-	const balances = useBalances(address);
+	const balances = useBalances();
 	const createGoal = useCreateGoalAction();
 	const usdc = ASSETS.find((a) => a.code === "USDC")!;
 	const [picked, setPicked] = useState<string | null>(null);
 	// Default: the asset most unfinished goals are saved in; else USDC when the wallet holds it; else XLM.
 	const counts = new Map<string, number>();
-	for (const g of goals) if (g.status !== "completed") counts.set(g.assetId, (counts.get(g.assetId) ?? 0) + 1);
+	for (const g of goals) if (isOpen(g) && !g.targetReached) counts.set(g.assetId, (counts.get(g.assetId) ?? 0) + 1);
 	const goalAsset = [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
-	const assetId = picked ?? goalAsset ?? (balances.data?.balances[usdc.id] !== undefined ? usdc.id : ASSETS[0]!.id);
+	const assetId = picked ?? goalAsset ?? (balances.trusted(usdc.id) ? usdc.id : ASSETS[0]!.id);
 	const asset = ASSETS.find((a) => a.id === assetId)!;
-	const amount = balances.data?.balances[assetId];
+	const amount = balances.balance(assetId);
 	const progress = ongoingProgress(goals, assetId);
 
 	return (
@@ -55,7 +54,14 @@ export function BalanceCard({
 				<div className="min-w-0">
 					<p className="text-xs uppercase md:text-[13px]">Total balance</p>
 					<p className="mt-1 truncate text-[40px] leading-tight font-light tracking-[-0.02em] tabular-nums md:text-[46px]">
-						{balances.isPending ? "…" : amount ? formatFixed(amount) : "0.00"}
+						{balances.isPending ? (
+							<span
+								className="skeleton-shimmer inline-block h-10 w-40 rounded-full bg-white/20 align-middle"
+								aria-label="Loading balance"
+							/>
+						) : (
+							<AnimatedNumber value={amountNumber(amount)} format={(n) => formatFixed(n.toFixed(7))} />
+						)}
 					</p>
 				</div>
 				<DropdownMenu>
@@ -93,7 +99,7 @@ export function BalanceCard({
 					aria-valuenow={Math.min(progress?.percent ?? 0, 100)}
 				>
 					<div
-						className="h-full rounded-full bg-primary-200 transition-[width] duration-700"
+						className="animate-grow h-full rounded-full bg-primary-200 transition-[width] duration-700"
 						style={{ width: `${Math.min(progress?.percent ?? 0, 100)}%` }}
 					/>
 				</div>
@@ -116,4 +122,10 @@ export function BalanceCard({
 			</button>
 		</section>
 	);
+}
+
+/** For the count-up only: display precision is two decimals, so a float is fine here (never for math). */
+function amountNumber(amount: string | null) {
+	if (!amount) return 0;
+	return Number(toStroops(amount)) / 1e7;
 }

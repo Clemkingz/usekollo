@@ -3,7 +3,11 @@ import { Suspense } from "react";
 import { AuthCard, AuthShell } from "@/features/auth/components/AuthShell";
 import { SignUpForm } from "@/features/auth/components/SignUpForm";
 
-export const metadata: Metadata = { title: "Create your account" };
+export const metadata: Metadata = {
+	title: "Create your account",
+	description: "Create a free UseKollo account and start saving toward your goals from your own Stellar wallet.",
+	alternates: { canonical: "/sign-up" },
+};
 
 export default function SignUpPage() {
 	return (

@@ -1,9 +1,9 @@
 "use client";
 
-import { useGoals } from "@/features/goals/hooks";
 import { useActivity } from "@/features/activity/hooks";
 import { useConnectedWallet } from "@/features/wallet/hooks";
 import { Breadcrumb } from "@/components/Breadcrumb";
+import { ErrorState } from "@/components/States";
 import { ActivityFeed } from "@/features/activity/components/ActivityFeed";
 import { NoActivity } from "@/features/activity/components/NoActivity";
 
@@ -12,19 +12,25 @@ import { NoActivity } from "@/features/activity/components/NoActivity";
  * search, status tabs, type filter and pages of four.
  */
 export function ActivityView() {
-	const { ready, address } = useConnectedWallet();
-	const goals = useGoals(address);
-	const activity = useActivity(address);
-	const names = new Map(goals.map((g) => [g.id, g.name]));
+	const { ready } = useConnectedWallet();
+	const { activity, isPending, isError, error, refetch, isFetching } = useActivity();
 	return (
 		<div className="flex flex-col gap-5 md:gap-6">
 			<Breadcrumb current="Activity" />
-			{!ready ? (
-				<div className="skeleton-shimmer h-[300px] rounded-[20px]" />
+			{!ready || isPending ? (
+				<div className="skeleton-shimmer h-[300px] rounded-[20px]" aria-label="Loading activity" />
+			) : isError ? (
+				<ErrorState
+					className="bg-white"
+					title="We couldn’t load your activity"
+					message={error.message}
+					onRetry={() => refetch()}
+					retrying={isFetching}
+				/>
 			) : activity.length === 0 ? (
 				<NoActivity description="You haven’t allocated any funds to specific saving targets yet. Goals help you organize your assets." />
 			) : (
-				<ActivityFeed items={activity} goalName={(id) => names.get(id)} pageSize={4} />
+				<ActivityFeed items={activity} pageSize={4} />
 			)}
 		</div>
 	);

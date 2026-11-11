@@ -1,5 +1,6 @@
 import type { GoalBadge } from "@repo/domain/goal-status";
 import { formatFixed } from "@repo/domain/money";
+import { AnimatedNumber } from "@repo/ui/animated-number";
 import { cn } from "@repo/ui/lib/utils";
 import { Badge } from "@/components/Badge";
 
@@ -41,7 +42,8 @@ export function GoalProgressRing({
 					stroke={urgent ? "#f23b3b" : "var(--color-primary-500)"}
 					strokeWidth="9"
 					strokeDasharray={`${share * c} ${c}`}
-					className="transition-[stroke-dasharray] duration-700"
+					strokeLinecap="round"
+					className="animate-ring-in transition-[stroke-dasharray] duration-700"
 				/>
 				<circle cx="100" cy="100" r="74" fill="none" stroke="#9e9e9e" strokeWidth="1" strokeDasharray="3 5" />
 			</svg>
@@ -57,7 +59,7 @@ export function GoalProgressRing({
 					</span>
 				)}
 				<Badge tone={urgent ? "red" : "blue"} className="mt-1.5 h-5 px-2 text-[10px] md:h-5 md:text-[10px]">
-					{Math.min(percent, 999)}% Done
+					<AnimatedNumber value={Math.min(percent, 999)} />% Done
 				</Badge>
 			</div>
 		</div>

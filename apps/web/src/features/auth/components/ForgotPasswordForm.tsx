@@ -16,8 +16,9 @@ import { CardFootnote } from "@/features/auth/components/AuthShell";
 import { VerifyCodeDialog } from "@/features/auth/components/VerifyCodeDialog";
 
 /**
- * Forgot Password? (design): email → "Reset Password" → reset code in the OTP modal → Create New password.
- * The answer is the same whether or not an account exists, so the form can't be used to probe emails.
+ * Forgot Password? (design): email → "Reset Password" → reset code in the OTP modal → Create New password. The API
+ * checks the code together with the new password, so the modal only collects it. The answer is the same whether or
+ * not an account exists, so the form can't be used to probe emails.
  */
 export function ForgotPasswordForm() {
 	const router = useRouter();
@@ -34,12 +35,6 @@ export function ForgotPasswordForm() {
 
 	// Read through a variable: the React Compiler evaluates `sent.email` during render to memoize the callbacks.
 	const email = sent?.email ?? "";
-
-	async function verify(code: string) {
-		const { resetToken } = await authApi.verifyResetCode(email, code);
-		useResetStore.getState().set(email, resetToken);
-		router.push(routes.resetPassword);
-	}
 
 	return (
 		<>
@@ -62,8 +57,11 @@ export function ForgotPasswordForm() {
 			<VerifyCodeDialog
 				sent={sent}
 				onClose={() => setSent(null)}
-				onVerify={verify}
-				onResend={() => authApi.sendCode(email, "reset_password")}
+				onVerify={async (code) => {
+					useResetStore.getState().set(email, code);
+					router.push(routes.resetPassword);
+				}}
+				onResend={() => authApi.requestPasswordReset(email)}
 			/>
 		</>
 	);

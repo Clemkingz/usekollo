@@ -18,6 +18,8 @@ import { GoalRow } from "@/features/goals/components/GoalRow";
 import { ActivityFeed } from "@/features/activity/components/ActivityFeed";
 import { BalanceCard } from "@/features/dashboard/components/BalanceCard";
 import { EmptyGoals } from "@/features/dashboard/components/DashboardView";
+import { DashboardSkeleton } from "@/features/dashboard/components/DashboardSkeleton";
+import { ErrorState } from "@/components/States";
 
 const PERIODS = [
 	{ value: "7", label: "Last 7 days" },
@@ -45,14 +47,30 @@ function ScanBoxIcon() {
  */
 export function GoalsView() {
 	const { ready, address } = useConnectedWallet();
-	const goals = useGoals(address);
-	const activity = useActivity(address);
+	const goalsQuery = useGoals();
+	const { activity } = useActivity();
 	const [period, setPeriod] = useState<Period>("30");
 	const [goalId, setGoalId] = useState<string>("all");
 	const now = useNow();
 
-	if (!ready) return <div className="skeleton-shimmer h-[300px] rounded-[30px]" />;
-	if (!address || goals.length === 0) return <EmptyGoals walletConnected={!!address} icon={<ScanBoxIcon />} />;
+	if (!ready || (address && goalsQuery.isPending)) return <DashboardSkeleton />;
+	if (goalsQuery.isError)
+		return (
+			<ErrorState
+				className="bg-white lg:flex-1"
+				title="We couldn’t load your goals"
+				message={goalsQuery.error.message}
+				onRetry={() => goalsQuery.refetch()}
+				retrying={goalsQuery.isFetching}
+			/>
+		);
+	// Closed goals stay listed (after the rest) once there's anything to show.
+	const goals = [
+		...goalsQuery.goals.filter((g) => g.status !== "closed"),
+		...goalsQuery.goals.filter((g) => g.status === "closed"),
+	];
+	if (!address || goals.every((g) => g.status === "closed"))
+		return <EmptyGoals walletConnected={!!address} icon={<ScanBoxIcon />} />;
 
 	const names = new Map(goals.map((g) => [g.id, g.name]));
 	const shownGoals = goalId === "all" ? goals : goals.filter((g) => g.id === goalId);
@@ -83,10 +101,10 @@ export function GoalsView() {
 			</div>
 
 			<div className="grid gap-5 xl:grid-cols-[minmax(0,837fr)_minmax(0,935fr)] xl:gap-4">
-				<BalanceCard address={address} goals={goals} pillInline />
+				<BalanceCard goals={goals} pillInline className="animate-rise" />
 				<div className="flex flex-col gap-2.5 xl:max-h-[407px] xl:overflow-y-auto">
-					{shownGoals.map((g) => (
-						<GoalRow key={g.id} goal={g} className="md:min-h-[80px]" />
+					{shownGoals.map((g, i) => (
+						<GoalRow key={g.id} goal={g} index={i + 1} className="md:min-h-[80px]" />
 					))}
 				</div>
 			</div>

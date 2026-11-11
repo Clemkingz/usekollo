@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ArrowDownLeft, ArrowUpRight, Clock3, Search, SlidersHorizontal, SquareArrowOutUpRight, X } from "lucide-react";
 import type { Activity, ActivityKind, TxStatus } from "@repo/domain/types";
-import { TX_STATUS_LABEL } from "@repo/domain/labels";
+import { ACTIVITY_KIND_LABEL, TX_STATUS_LABEL } from "@repo/domain/labels";
 import { formatFixed } from "@repo/domain/money";
 import {
 	DropdownMenu,
@@ -13,7 +13,7 @@ import {
 	DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
 import { cn } from "@repo/ui/lib/utils";
-import { assetById, explorer, shortKey } from "@/lib/stellar/config";
+import { explorer, shortKey } from "@/lib/stellar/config";
 import { Badge, type BadgeTone } from "@/components/Badge";
 import { Pagination } from "@/components/Pagination";
 import { EmptyState } from "@/components/States";
@@ -26,26 +26,44 @@ import { EmptyState } from "@/components/States";
 
 type Segment = "all" | "success" | "failed";
 
-const STATUS_TONE: Record<TxStatus, BadgeTone> = { confirmed: "blue", pending: "grey", failed: "red", unknown: "amber" };
+const STATUS_TONE: Record<TxStatus, BadgeTone> = { confirmed: "blue", pending: "amber", failed: "red" };
 const DOT: Record<TxStatus, string> = {
 	confirmed: "bg-[#2dbd5a]",
-	pending: "bg-[#2dbd5a]",
+	pending: "bg-warning-500 animate-signal text-warning-500",
 	failed: "bg-[#e5372f]",
-	unknown: "bg-warning-500",
 };
 
-const code = (a: Activity) => assetById(a.assetId)?.code ?? a.assetId;
-const amountText = (a: Activity) => `${a.kind === "withdrawal" ? "−" : "+"}${formatFixed(a.amount)} ${code(a)}`;
+/** Type filter groups: opening and closing a goal count as "Goal setup". */
+type KindFilter = "deposit" | "withdrawal" | "setup";
+const kindGroup = (k: ActivityKind): KindFilter => (k === "open" || k === "close" ? "setup" : k);
+const KIND_FILTERS: { value: KindFilter; label: string }[] = [
+	{ value: "deposit", label: "Deposits" },
+	{ value: "withdrawal", label: "Withdrawals" },
+	{ value: "setup", label: "Goal opened / closed" },
+];
 
-/** "Deposit to Laptop" / "Withdrawal" (desktop operation column). */
-function operation(a: Activity, goalName?: string) {
-	return a.kind === "deposit" ? `Deposit to ${goalName ?? "goal"}` : goalName ? `Withdrawal from ${goalName}` : "Withdrawal";
+/** Money into a goal is +, out of it −; opening a goal moves no savings. */
+const amountText = (a: Activity) =>
+	a.kind === "open" ? "—" : `${a.kind === "deposit" ? "+" : "−"}${formatFixed(a.amount)} ${a.assetCode}`;
+
+const txUrl = (a: Activity) => a.explorerUrl ?? (a.txHash ? explorer.tx(a.txHash) : null);
+
+/** "Deposit to Laptop" / "Withdrawal from Laptop" / "Opened Laptop" (desktop operation column). */
+function operation(a: Activity, goalName = a.goalName) {
+	const name = goalName || "goal";
+	const text = {
+		deposit: `Deposit to ${name}`,
+		withdrawal: `Withdrawal from ${name}`,
+		open: `Opened ${name}`,
+		close: `Closed ${name}`,
+	}[a.kind];
+	return a.external ? `${text} (from outside UseKollo)` : text;
 }
 
-/** Phone card titles from the design: "Deposit to Laptop", "Deposit Pending", "Failed Deposit". */
+/** Phone card titles from the design: "Deposit to Laptop", "Deposit Processing", "Failed Deposit". */
 function cardTitle(a: Activity, goalName?: string) {
-	const kind = a.kind === "deposit" ? "Deposit" : "Withdrawal";
-	if (a.status === "pending") return `${kind} Pending`;
+	const kind = ACTIVITY_KIND_LABEL[a.kind];
+	if (a.status === "pending") return `${kind} Processing`;
 	if (a.status === "failed") return `Failed ${kind}`;
 	return operation(a, goalName);
 }
@@ -75,17 +93,17 @@ export function ActivityFeed({
 }) {
 	const [query, setQuery] = useState("");
 	const [segment, setSegment] = useState<Segment>("all");
-	const [kinds, setKinds] = useState<Record<ActivityKind, boolean>>({ deposit: true, withdrawal: true });
+	const [kinds, setKinds] = useState<Record<KindFilter, boolean>>({ deposit: true, withdrawal: true, setup: true });
 	const [page, setPage] = useState(1);
 
 	const q = query.trim().toLowerCase();
 	const filtered = items.filter((a) => {
 		if (segment === "success" && a.status !== "confirmed") return false;
 		if (segment === "failed" && a.status !== "failed") return false;
-		if (!kinds[a.kind]) return false;
+		if (!kinds[kindGroup(a.kind)]) return false;
 		if (!q) return true;
 		const name = goalName?.(a.goalId);
-		return [a.txHash ?? "", operation(a, name), a.kind, code(a), TX_STATUS_LABEL[a.status]].some((v) =>
+		return [a.txHash ?? "", operation(a, name), a.kind, a.assetCode, TX_STATUS_LABEL[a.status]].some((v) =>
 			v.toLowerCase().includes(q),
 		);
 	});
@@ -156,21 +174,21 @@ export function ActivityFeed({
 								className="flex h-[38px] items-center gap-2 rounded-full bg-white px-4 text-sm text-ink/45 transition-colors hover:text-ink"
 							>
 								<SlidersHorizontal className="size-4 text-ink" aria-hidden /> Filter
-								{!(kinds.deposit && kinds.withdrawal) && (
+								{!(kinds.deposit && kinds.withdrawal && kinds.setup) && (
 									<span className="size-1.5 rounded-full bg-primary-500" aria-label="(active)" />
 								)}
 							</button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="w-52 border-line bg-white text-ink">
 							<DropdownMenuLabel className="text-xs font-normal text-ink/55">Type</DropdownMenuLabel>
-							{(["deposit", "withdrawal"] as const).map((k) => (
+							{KIND_FILTERS.map((k) => (
 								<DropdownMenuCheckboxItem
-									key={k}
-									checked={kinds[k]}
-									onCheckedChange={(v) => reset(setKinds)({ ...kinds, [k]: v === true })}
+									key={k.value}
+									checked={kinds[k.value]}
+									onCheckedChange={(v) => reset(setKinds)({ ...kinds, [k.value]: v === true })}
 									className="cursor-pointer focus:bg-primary-50"
 								>
-									{k === "deposit" ? "Deposits" : "Withdrawals"}
+									{k.label}
 								</DropdownMenuCheckboxItem>
 							))}
 						</DropdownMenuContent>
@@ -196,8 +214,8 @@ export function ActivityFeed({
 								</tr>
 							</thead>
 							<tbody>
-								{shown.map((a) => (
-									<tr key={a.id} className="border-t border-line">
+								{shown.map((a, i) => (
+									<tr key={a.id} className="animate-rise border-t border-line" style={{ "--i": i } as React.CSSProperties}>
 										<td className="px-6 py-3.5">
 											<span className="flex items-center gap-2.5">
 												<span className={cn("size-2 shrink-0 rounded-full", DOT[a.status])} aria-hidden />
@@ -220,9 +238,9 @@ export function ActivityFeed({
 											<Badge tone={STATUS_TONE[a.status]}>{TX_STATUS_LABEL[a.status]}</Badge>
 										</td>
 										<td className="px-6 py-3.5 text-right">
-											{a.txHash ? (
+											{txUrl(a) ? (
 												<a
-													href={explorer.tx(a.txHash)}
+													href={txUrl(a)!}
 													target="_blank"
 													rel="noreferrer"
 													aria-label="View transaction on Stellar Expert (opens in a new tab)"
@@ -243,8 +261,8 @@ export function ActivityFeed({
 
 					{/* Phone cards */}
 					<ul className="mt-3 flex flex-col gap-2.5 md:hidden">
-						{shown.map((a) => (
-							<li key={a.id}>
+						{shown.map((a, i) => (
+							<li key={a.id} className="animate-rise" style={{ "--i": i } as React.CSSProperties}>
 								<ActivityCard a={a} goalName={goalName?.(a.goalId)} />
 							</li>
 						))}
@@ -278,11 +296,11 @@ function ActivityCard({ a, goalName }: { a: Activity; goalName?: string }) {
 			<span className="flex size-[34px] items-center justify-center rounded-full bg-[#ffe6e6] text-[#d81b1b]">
 				<X className="size-4" strokeWidth={3} />
 			</span>
-		) : a.status === "pending" || a.status === "unknown" ? (
+		) : a.status === "pending" ? (
 			<span className="flex size-[34px] items-center justify-center rounded-full bg-warning-50 text-warning-700">
 				<Clock3 className="size-4" strokeWidth={2.5} />
 			</span>
-		) : a.kind === "deposit" ? (
+		) : a.kind === "deposit" || a.kind === "open" ? (
 			<span className="flex size-[34px] items-center justify-center rounded-full bg-primary-100/70 text-primary-700">
 				<ArrowDownLeft className="size-4" strokeWidth={3} />
 			</span>
@@ -307,9 +325,10 @@ function ActivityCard({ a, goalName }: { a: Activity; goalName?: string }) {
 			</span>
 		</div>
 	);
-	return a.txHash ? (
+	const url = txUrl(a);
+	return url ? (
 		<a
-			href={explorer.tx(a.txHash)}
+			href={url}
 			target="_blank"
 			rel="noreferrer"
 			className="block"

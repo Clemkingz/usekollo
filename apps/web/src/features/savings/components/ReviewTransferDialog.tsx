@@ -1,14 +1,16 @@
 "use client";
 
-import { ArrowRight, WalletCards } from "lucide-react";
-import type { ActivityKind } from "@repo/domain/types";
+import { useEffect, useState } from "react";
+import { ArrowRight, Timer, WalletCards } from "lucide-react";
 import { Button } from "@repo/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@repo/ui/dialog";
 import { NETWORK_FEE_XLM, shortKey } from "@/lib/stellar/config";
+import type { TransferKind } from "@/features/savings/components/TransferResultDialog";
 
 /**
  * Review Deposit / Review Withdrawal (designs): the amount, the goal, the wallet it comes from (deposit) or goes to
- * (withdrawal), and the fee. Confirm opens the wallet to sign.
+ * (withdrawal), and the fee, plus UseKollo's plain summary of the prepared transaction and how long it stays valid.
+ * Confirm opens the wallet to sign.
  */
 export function ReviewTransferDialog({
 	kind,
@@ -20,8 +22,10 @@ export function ReviewTransferDialog({
 	code,
 	goalName,
 	address,
+	summary,
+	expiresAt,
 }: {
-	kind: ActivityKind;
+	kind: TransferKind;
 	open: boolean;
 	onClose: () => void;
 	onConfirm: () => void;
@@ -30,6 +34,8 @@ export function ReviewTransferDialog({
 	code: string;
 	goalName: string;
 	address: string;
+	summary?: string;
+	expiresAt?: string;
 }) {
 	const deposit = kind === "deposit";
 	return (
@@ -71,6 +77,8 @@ export function ReviewTransferDialog({
 					<span className="text-ink/40 uppercase">Network fee</span>
 					<span className="text-ink tabular-nums">{NETWORK_FEE_XLM} XLM</span>
 				</div>
+				{summary && <p className="mt-4 rounded-2xl bg-page px-4 py-3 text-sm leading-6 text-ink/70">{summary}</p>}
+				{open && expiresAt && <ExpiresIn iso={expiresAt} />}
 
 				<Button className="mt-10 h-[59px] text-lg" onClick={onConfirm} isLoading={pending} loadingLabel="Waiting for your wallet">
 					{deposit ? "Confirm Transaction" : "Confirm Withdrawal"}
@@ -90,5 +98,27 @@ export function ReviewTransferDialog({
 				)}
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/** "Valid for 4:32": the prepared transaction must be signed before it expires; after that, review again. */
+function ExpiresIn({ iso }: { iso: string }) {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const id = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, []);
+	const left = Math.max(0, Math.round((new Date(iso).getTime() - now) / 1000));
+	return (
+		<p className="mt-3 flex items-center gap-2 text-xs text-ink/45" aria-live="off">
+			<Timer className="size-3.5" aria-hidden />
+			{left > 0 ? (
+				<span className="tabular-nums">
+					Valid for {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}
+				</span>
+			) : (
+				<span className="text-error-400">Expired. Close this and review again.</span>
+			)}
+		</p>
 	);
 }

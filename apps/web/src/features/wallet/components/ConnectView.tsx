@@ -13,12 +13,13 @@ import { ConnectWalletPanel } from "@/features/wallet/components/ConnectWalletPa
 export function ConnectView() {
 	const router = useRouter();
 	const next = safeNext(useSearchParams().get("next"));
-	const { ready, address } = useConnectedWallet();
+	const { ready, address, canSign } = useConnectedWallet();
 
-	// Already connected (e.g. a bookmarked /connect): straight on.
+	// Already connected in this browser (e.g. a bookmarked /connect): straight on. A linked wallet this browser can't
+	// sign with stays here to reconnect.
 	useEffect(() => {
-		if (ready && address) router.replace(next);
-	}, [ready, address, next, router]);
+		if (ready && address && canSign) router.replace(next);
+	}, [ready, address, canSign, next, router]);
 
 	return (
 		<AuthShell alt="none">

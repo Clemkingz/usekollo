@@ -49,6 +49,8 @@ export function ConnectWalletPanel({ onConnected }: { onConnected: (address: str
 	const [done, setDone] = useState<WalletId | null>(null);
 	const [problem, setProblem] = useState<Problem | null>(null);
 	const [lastTried, setLastTried] = useState<WalletId | null>(null);
+	/** The wallet shared its address; now it signs the proof that links it to the account. */
+	const [linking, setLinking] = useState(false);
 
 	const available = availableWallets(phone);
 	const rows = SHOWN.flatMap((id) => available.filter((w) => w.id === id)).map((w) => ({ ...w, Icon: ICONS[w.id] }));
@@ -57,8 +59,12 @@ export function ConnectWalletPanel({ onConnected }: { onConnected: (address: str
 		setProblem(null);
 		setBusy(id);
 		setLastTried(id);
+		setLinking(false);
 		try {
-			const address = await connect(id, { onAppMissed: () => setProblem({ kind: "app_missed", walletId: id }) });
+			const address = await connect(id, {
+				onAppMissed: () => setProblem({ kind: "app_missed", walletId: id }),
+				onLinking: () => setLinking(true),
+			});
 			setDone(id);
 			notify.success("Wallet connected", `${shortKey(address)} · Stellar Testnet`);
 			// Let the tick land before moving on.
@@ -66,6 +72,7 @@ export function ConnectWalletPanel({ onConnected }: { onConnected: (address: str
 		} catch (error) {
 			setProblem(toProblem(error, id));
 			setBusy(null);
+			setLinking(false);
 		}
 	}
 
@@ -105,7 +112,9 @@ export function ConnectWalletPanel({ onConnected }: { onConnected: (address: str
 										<span className="block text-[15px] text-ink sm:text-lg">{name}</span>
 										{isBusy && (
 											<span aria-live="polite" className="block text-xs text-ink/55">
-												Approve the connection in your wallet…
+												{linking
+													? "Sign once in your wallet to link it to your account (moves nothing)…"
+													: "Approve the connection in your wallet…"}
 											</span>
 										)}
 									</span>

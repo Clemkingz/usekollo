@@ -1,11 +1,22 @@
-/** Brand copy for metadata. TODO(design): final tagline and description from the design guide. */
+/** Brand copy for metadata, link previews and the web manifest. */
 const SITE_NAME = "UseKollo";
 const SITE_TAGLINE = "Savings goals for your Stellar wallet";
 const SITE_DESCRIPTION =
-	"Organise your digital assets around savings goals and track your progress, while your funds stay in your own wallet. Built on Stellar Testnet.";
+	"Set savings goals in XLM or USDC, add to them from your own Stellar wallet, and watch your progress. Non-custodial: every goal is an account only your wallet controls. Built on Stellar Testnet.";
 const SHARE_DESCRIPTION = "Set savings goals, add to them from your own Stellar wallet, and watch your progress.";
 
-const SITE_KEYWORDS = ["UseKollo", "Stellar", "savings goals", "non-custodial", "XLM", "USDC", "wallet"];
+const SITE_KEYWORDS = [
+	"UseKollo",
+	"savings goals",
+	"Stellar",
+	"Stellar Testnet",
+	"non-custodial",
+	"self-custody savings",
+	"XLM",
+	"USDC",
+	"Freighter",
+	"crypto savings tracker",
+];
 
 /** Mirrors the page background token (--color-page) in packages/ui globals.css. */
 const THEME_COLOR = "#f9f9f9";

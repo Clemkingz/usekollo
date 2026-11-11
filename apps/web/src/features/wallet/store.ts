@@ -5,18 +5,20 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import type { WalletId } from "@/features/wallet/kit";
 
 interface WalletState {
-	/** Public address (G…) of the connected wallet. Never a secret. */
+	/** Public address (G…) this browser's wallet session is for. Never a secret. */
 	address: string | null;
+	/** Which wallet (Freighter, Albedo…) signs for it. */
 	walletId: WalletId | null;
 	/** Kept after a disconnect so the header can say "Wallet Disconnected" rather than "Connect Wallet". */
 	lastWalletId: WalletId | null;
 	setConnected: (address: string, walletId: WalletId) => void;
 	clear: () => void;
+	forget: () => void;
 }
 
 /**
- * The connected wallet. There is no account and no backend session: "connected" means the user approved sharing
- * their public address. Every transaction is still approved and signed in the wallet itself (non-custodial).
+ * This browser's wallet session: which wallet app signs for the account's linked wallet. The account's linked
+ * wallet itself lives on the API (`GET /wallet`). Every transaction is approved and signed in the wallet (non-custodial).
  */
 export const useWallet = create<WalletState>()(
 	persist(
@@ -26,6 +28,7 @@ export const useWallet = create<WalletState>()(
 			lastWalletId: null,
 			setConnected: (address, walletId) => set({ address, walletId, lastWalletId: walletId }),
 			clear: () => set({ address: null, walletId: null }),
+			forget: () => set({ address: null, walletId: null, lastWalletId: null }),
 		}),
 		{ name: "usekollo-wallet", storage: createJSONStorage(() => localStorage) },
 	),

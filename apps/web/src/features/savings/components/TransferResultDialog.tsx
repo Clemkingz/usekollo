@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Check, CircleHelp, CircleX } from "lucide-react";
-import type { ActivityKind } from "@repo/domain/types";
+import { CircleX, Clock3 } from "lucide-react";
 import { Button } from "@repo/ui/button";
 import { cn } from "@repo/ui/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@repo/ui/dialog";
+import { ApiError, isNetworkError } from "@/lib/api/client";
 import { errorMessage } from "@/lib/errors";
 import { routes } from "@/lib/routes";
 import { explorer, shortKey } from "@/lib/stellar/config";
-import type { SubmitResult } from "@/features/savings/stellar-tx";
-import { OutcomeUnknownError, PendingDecisionError } from "@/features/savings/stellar-tx";
-import { WalletDeclinedError } from "@/features/savings/hooks";
+import { WalletNotConnectedError } from "@/features/wallet/connect";
+import { WalletDeclinedError, type TxOutcome } from "@/features/savings/hooks";
 
-export type TransferOutcome = SubmitResult | { status: "error"; error: unknown } | null;
+export type TransferKind = "deposit" | "withdrawal";
+
+export type TransferOutcome = TxOutcome | { status: "error"; error: unknown } | null;
 
 const shortHash = (hash: string) => shortKey(hash, 6, 4).replace("…", "...");
 
@@ -21,16 +22,19 @@ const shortHash = (hash: string) => shortKey(hash, 6, 4).replace("…", "...");
 function failureCode(outcome: TransferOutcome) {
 	if (outcome?.status === "failed") return "Network rejected";
 	if (outcome?.status !== "error") return "Not sent";
-	if (outcome.error instanceof WalletDeclinedError) return "Signature rejected";
-	if (outcome.error instanceof PendingDecisionError) return "Not available yet";
+	const e = outcome.error;
+	if (e instanceof WalletDeclinedError) return "Signature rejected";
+	if (e instanceof WalletNotConnectedError) return "Wallet not connected";
+	if (e instanceof ApiError && e.status === 409) return "Expired";
+	if (isNetworkError(e)) return "Connection lost";
 	return "Not sent";
 }
 
 /**
  * After Confirm (designs: Transfer Complete, Withdrawal Complete, Withdrawal Failed; the deposit failure and the
- * unknown outcome reuse them). Complete → "View Goal Progress". Failed (wallet declined, network rejected, not sent)
- * → reason code, the sentence, the attempted action, "Retry …" / "Back to Dashboard". Unknown (the answer was lost)
- * → check the explorer first; never retried automatically.
+ * processing state reuse them). Complete → "View Goal Progress". Failed (wallet declined, network rejected, expired,
+ * not sent) → reason code, the sentence, the attempted action, "Retry …" / "Back to Dashboard". Processing (the
+ * network didn't answer in time) → UseKollo settles it in the background; never resent automatically.
  */
 export function TransferResultDialog({
 	kind,
@@ -42,7 +46,7 @@ export function TransferResultDialog({
 	onRetry,
 	onClose,
 }: {
-	kind: ActivityKind;
+	kind: TransferKind;
 	outcome: TransferOutcome;
 	amount: string;
 	code: string;
@@ -52,32 +56,28 @@ export function TransferResultDialog({
 	onClose: () => void;
 }) {
 	const deposit = kind === "deposit";
-	const state =
-		outcome?.status === "confirmed"
-			? "done"
-			: outcome?.status === "error" && outcome.error instanceof OutcomeUnknownError
-				? "unknown"
-				: "failed";
-	const hash =
-		outcome?.status === "confirmed" || outcome?.status === "failed"
-			? outcome.hash
-			: outcome?.status === "error" && outcome.error instanceof OutcomeUnknownError
-				? outcome.error.hash
-				: null;
+	const state = outcome?.status === "confirmed" ? "done" : outcome?.status === "pending" ? "processing" : "failed";
+	const hash = outcome && outcome.status !== "error" ? outcome.hash : null;
 	const reason = outcome?.status === "failed" ? outcome.reason : outcome?.status === "error" ? errorMessage(outcome.error) : "";
 	const attempted = deposit ? `Add ${amount} ${code} to ${goalName}` : `Withdraw ${amount} ${code} from ${goalName}`;
+	const reached = outcome?.status === "confirmed" && deposit && outcome.goal.targetReached;
 
 	const copy = {
 		done: deposit
-			? { title: "Transfer Complete", text: "Funds have been successfully allocated to your goal." }
+			? {
+					title: reached ? "Goal Reached!" : "Transfer Complete",
+					text: reached
+						? "You’ve hit your target. Withdrawals are now unlocked for this goal."
+						: "Funds have been successfully allocated to your goal.",
+				}
 			: { title: "Withdrawal Complete", text: "Funds have been successfully withdrawn to your wallet." },
 		failed: {
 			title: deposit ? "Transfer Failed" : "Withdrawal Failed",
-			text: "The wallet declined the signing request, or the transaction could not be processed.",
+			text: "The wallet declined the signing request, or the transaction could not be processed. No funds were moved.",
 		},
-		unknown: {
-			title: "Status Unknown",
-			text: "We couldn’t confirm the result. Check the transaction on the explorer before trying again.",
+		processing: {
+			title: "Still Processing",
+			text: "The network is taking longer than usual. UseKollo keeps checking and updates your goal on its own. Don’t send it again.",
 		},
 	}[state];
 
@@ -90,24 +90,26 @@ export function TransferResultDialog({
 			>
 				<span
 					className={cn(
-						"mx-auto flex size-[130px] items-center justify-center rounded-full",
+						"animate-pop mx-auto flex size-[130px] items-center justify-center rounded-full",
 						state === "done" ? "bg-primary-50" : state === "failed" ? "bg-[#fdeeee]" : "bg-warning-100",
 					)}
 					aria-hidden
 				>
 					{state === "done" ? (
 						<span className="flex size-[62px] items-center justify-center rounded-full bg-primary-700 text-white">
-							<Check className="size-8" strokeWidth={3} />
+							<svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth={3}>
+								<path d="M5 12.5l4.5 4.5L19 7.5" className="animate-check" strokeLinecap="round" strokeLinejoin="round" />
+							</svg>
 						</span>
 					) : state === "failed" ? (
 						<CircleX className="size-[60px] text-[#f04242]" strokeWidth={1.5} />
 					) : (
-						<CircleHelp className="size-[60px] text-warning-800" strokeWidth={1.5} />
+						<Clock3 className="size-[60px] text-warning-800 motion-safe:animate-pulse" strokeWidth={1.5} />
 					)}
 				</span>
 
 				<DialogTitle className="mt-10 font-display text-[28px] font-normal text-ink md:text-[30px]">{copy.title}</DialogTitle>
-				<DialogDescription className="mx-auto mt-2 max-w-[310px] text-base leading-snug text-ink/40">
+				<DialogDescription className="mx-auto mt-2 max-w-[330px] text-base leading-snug text-ink/40">
 					{copy.text}
 				</DialogDescription>
 
@@ -130,7 +132,7 @@ export function TransferResultDialog({
 						{state === "failed" && (
 							<p className="font-mono text-sm tracking-wide text-[#f04242] uppercase md:text-base">{failureCode(outcome)}</p>
 						)}
-						<p className="mt-3 text-base leading-snug text-ink md:text-lg">{reason}</p>
+						{reason && <p className="mt-3 text-base leading-snug text-ink md:text-lg">{reason}</p>}
 						<dl className="mt-5 grid gap-2 border-t border-line pt-4 text-xs md:text-sm">
 							<div className="flex gap-4">
 								<dt className="shrink-0 text-ink/60 uppercase">Attempted action:</dt>
@@ -165,13 +167,13 @@ export function TransferResultDialog({
 					) : (
 						<>
 							{hash && (
-								<Button asChild className="h-[59px] text-lg">
+								<Button asChild variant="outline" className="h-[59px] text-lg">
 									<a href={explorer.tx(hash)} target="_blank" rel="noreferrer">
 										Check on Explorer
 									</a>
 								</Button>
 							)}
-							<Button asChild variant="outline" className="h-[59px] text-lg">
+							<Button asChild className="h-[59px] text-lg">
 								<Link href={goalHref}>Back to Goal</Link>
 							</Button>
 						</>

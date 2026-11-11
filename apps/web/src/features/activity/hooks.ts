@@ -1,18 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
-import type { Activity } from "@repo/domain/types";
-import { useGoalsStore } from "@/features/goals/store";
+import { useQuery } from "@tanstack/react-query";
+import { toActivities } from "@/lib/api/map";
+import { keys } from "@/lib/query-client";
+import { goalsApi } from "@/features/goals/api";
+import { useConnectedWallet } from "@/features/wallet/hooks";
 
-/** Activity for the owner's goals (or one goal), newest first (PRD screen 9 and Goal Details). */
-export function useActivity(owner: string | null, goalId?: string): Activity[] {
-	const goals = useGoalsStore((s) => s.goals);
-	const activity = useGoalsStore((s) => s.activity);
-	return useMemo(() => {
-		if (!owner) return [];
-		const mine = new Set(goals.filter((g) => g.owner === owner).map((g) => g.id));
-		return activity
-			.filter((a) => mine.has(a.goalId) && (!goalId || a.goalId === goalId))
-			.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-	}, [goals, activity, owner, goalId]);
+/**
+ * Activity across every goal, or one goal's, newest first (PRD screen 9 and Goal Details). Polls while anything is
+ * still processing: the API settles slow transactions in the background.
+ */
+export function useActivity(goalId?: string) {
+	const { address } = useConnectedWallet();
+	const query = useQuery({
+		queryKey: goalId ? keys.goalActivity(goalId) : keys.activity,
+		queryFn: async () => toActivities(await (goalId ? goalsApi.activity(goalId) : goalsApi.allActivity())),
+		enabled: !!address,
+		refetchInterval: (q) => (q.state.data?.some((a) => a.status === "pending") ? 8_000 : false),
+	});
+	return { ...query, activity: query.data ?? [] };
 }

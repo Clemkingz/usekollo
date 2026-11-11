@@ -1,17 +1,13 @@
 import type { Asset } from "@repo/domain/types";
 
 /**
- * Stellar Testnet constants (PRD: Testnet only, Testnet assets only). The app talks to Horizon directly; there is
- * no UseKollo backend.
+ * Stellar Testnet constants (PRD: Testnet only, Testnet assets only). The UseKollo API prepares and submits every
+ * transaction and reads balances; these are for the wallet (network passphrase), labels and explorer links. They
+ * match the API's `GET /stellar/network`.
  */
 export const STELLAR_NETWORK = "testnet" as const;
 
 export const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
-
-export const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || "https://horizon-testnet.stellar.org";
-
-/** Funds a new Testnet account with test XLM (shown to users whose account doesn't exist yet). */
-export const FRIENDBOT_URL = "https://friendbot.stellar.org";
 
 const EXPLORER = "https://stellar.expert/explorer/testnet";
 
@@ -27,7 +23,7 @@ export const NETWORK_FEE_XLM = "0.00001";
 /** Circle's Testnet USDC issuer. */
 const USDC_TESTNET_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
-/** The assets a goal can be saved in. TODO(D4): confirm the list with product. */
+/** The assets a goal can be saved in (the API's accepted assets; ids are the API's asset ids). */
 export const ASSETS: Asset[] = [
 	{ id: "XLM", code: "XLM", issuer: null, name: "Stellar Lumens" },
 	{ id: `USDC:${USDC_TESTNET_ISSUER}`, code: "USDC", issuer: USDC_TESTNET_ISSUER, name: "USD Coin (Testnet)" },

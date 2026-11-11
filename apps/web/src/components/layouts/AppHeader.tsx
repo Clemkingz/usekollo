@@ -13,17 +13,17 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
+import { toActivities } from "@/lib/api/map";
+import { keys, queryClient } from "@/lib/query-client";
 import { routes } from "@/lib/routes";
 import { ASSETS, explorer, shortKey } from "@/lib/stellar/config";
-import { useBalances } from "@/lib/stellar/horizon";
 import { notify } from "@/lib/use-toast";
 import { Logo } from "@/components/Logo";
 import { useSession, useSignOut } from "@/features/auth/hooks";
-import { useGoalsStore } from "@/features/goals/store";
+import { goalsApi } from "@/features/goals/api";
 import { disconnect } from "@/features/wallet/connect";
 import { useWalletDialog } from "@/features/wallet/dialog-store";
-import { useConnectedWallet } from "@/features/wallet/hooks";
-import { useWallet } from "@/features/wallet/store";
+import { useBalances, useConnectedWallet } from "@/features/wallet/hooks";
 
 const menuItem = "cursor-pointer focus:bg-primary-50 focus:text-ink";
 
@@ -52,17 +52,30 @@ export function AppHeader() {
 function TxSearch() {
 	const router = useRouter();
 	const [query, setQuery] = useState("");
-	function submit(event: React.FormEvent) {
+	const [searching, setSearching] = useState(false);
+	async function submit(event: React.FormEvent) {
 		event.preventDefault();
-		const q = query.trim();
+		const q = query.trim().toLowerCase();
 		if (!q) return;
-		const { goals, activity } = useGoalsStore.getState();
-		const goal =
-			goals.find((g) => g.id === q) ??
-			goals.find((g) => g.id === activity.find((a) => a.txHash?.toLowerCase() === q.toLowerCase())?.goalId);
-		if (goal) {
+		setSearching(true);
+		let goalId: string | undefined;
+		try {
+			const activity = await queryClient.fetchQuery({
+				queryKey: keys.activity,
+				queryFn: async () => toActivities(await goalsApi.allActivity()),
+			});
+			goalId =
+				activity.find((a) => a.goalId === q)?.goalId ??
+				activity.find((a) => a.txHash?.toLowerCase() === q)?.goalId ??
+				activity.find((a) => a.goalName.toLowerCase() === q)?.goalId;
+		} catch {
+			// Fall through to the explorer / "nothing found".
+		} finally {
+			setSearching(false);
+		}
+		if (goalId) {
 			setQuery("");
-			router.push(routes.goal(goal.id));
+			router.push(routes.goal(goalId));
 		} else if (/^[0-9a-f]{64}$/i.test(q)) {
 			window.open(explorer.tx(q.toLowerCase()), "_blank", "noopener,noreferrer");
 		} else {
@@ -72,7 +85,7 @@ function TxSearch() {
 	return (
 		<form role="search" onSubmit={submit} className="hidden max-w-[720px] flex-1 md:block">
 			<label className="flex h-9 items-center gap-3 rounded-full border border-ink/80 px-4 focus-within:border-primary-500 focus-within:ring-4 focus-within:ring-primary-500/10">
-				<Search className="size-5 shrink-0 text-ink" aria-hidden />
+				<Search className={`size-5 shrink-0 text-ink ${searching ? "motion-safe:animate-pulse" : ""}`} aria-hidden />
 				<span className="sr-only">Search by transaction hash or goal ID</span>
 				<input
 					value={query}
@@ -89,16 +102,16 @@ function TxSearch() {
 
 /** Wallet pill (design): balance | short address; a menu to copy, view on the explorer or disconnect. */
 function WalletPill() {
-	const { ready, address } = useConnectedWallet();
+	const { ready, address, canSign } = useConnectedWallet();
 	const show = useWalletDialog((s) => s.show);
-	const balances = useBalances(address);
-	const wasConnected = useWallet((s) => s.lastWalletId !== null);
+	const balances = useBalances();
 	const pill = "flex h-9 items-center gap-2.5 rounded-full bg-[#ececec] px-3 text-sm md:px-4 md:text-base";
 
 	if (!ready) return <span className="skeleton-shimmer hidden h-9 w-[150px] rounded-full md:block" aria-hidden />;
-	if (!address)
-		// Reconnect design: a red "Wallet Disconnected" pill once a wallet has been used here; otherwise "Connect Wallet".
-		return wasConnected ? (
+	if (!address || !canSign)
+		// Reconnect design: a red "Wallet Disconnected" pill when the account has a wallet this browser can't sign with;
+		// otherwise "Connect Wallet".
+		return address ? (
 			<button
 				type="button"
 				onClick={() => show("Reconnect your wallet to see your goals and balances.")}
@@ -115,8 +128,8 @@ function WalletPill() {
 
 	// The design shows one balance: USDC when the wallet holds it, else XLM.
 	const usdc = ASSETS.find((a) => a.code === "USDC")!;
-	const held = balances.data?.balances[usdc.id] !== undefined ? usdc : ASSETS[0]!;
-	const amount = balances.data?.balances[held.id];
+	const held = balances.trusted(usdc.id) ? usdc : ASSETS[0]!;
+	const amount = balances.balance(held.id);
 
 	async function copy() {
 		try {
@@ -165,7 +178,7 @@ function WalletPill() {
 					}}
 					className="cursor-pointer text-error-400 focus:bg-error-50 focus:text-error-500"
 				>
-					<Unplug className="size-4" /> Disconnect wallet
+					<Unplug className="size-4" /> Disconnect in this browser
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -177,7 +190,14 @@ function AccountAvatar() {
 	const { user } = useSession();
 	const signOut = useSignOut();
 	if (!user) return null;
-	const initials = user.email.slice(0, 2).toUpperCase();
+	const initials =
+		user.name
+			.split(/\s+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((w) => w[0])
+			.join("")
+			.toUpperCase() || user.email.slice(0, 2).toUpperCase();
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
@@ -192,8 +212,8 @@ function AccountAvatar() {
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-64 border-line bg-white text-ink">
 				<DropdownMenuLabel className="py-2">
-					<span className="block text-xs font-normal text-ink/55">Signed in as</span>
-					<span className="block truncate text-sm font-medium">{user.email}</span>
+					<span className="block truncate text-sm font-medium">{user.name}</span>
+					<span className="block truncate text-xs font-normal text-ink/55">{user.email}</span>
 				</DropdownMenuLabel>
 				<DropdownMenuSeparator className="bg-line" />
 				<DropdownMenuItem asChild className={menuItem}>

@@ -146,7 +146,9 @@ function VerifyCodeBody({
 			<p className="mt-6 text-[15px] text-ink/80" aria-live="polite">
 				Didn’t get a code?{" "}
 				{secondsLeft > 0 ? (
-					<span className="text-ink/60 tabular-nums">Resend in 0:{String(secondsLeft).padStart(2, "0")}</span>
+					<span className="text-ink/60 tabular-nums">
+						Resend in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+					</span>
 				) : (
 					<button
 						type="button"

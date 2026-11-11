@@ -18,7 +18,8 @@ Source: "UseKollo MVP – Project Brief". Structure: reference project `chuksale
 
 - [x] Tokens, fonts (DM Sans, Inter, JetBrains Mono), logo + icons (extracted from the design), light theme.
 - [x] Restyled shared components: pill buttons and inputs, checkbox, OTP slots, dialog, toasts.
-- [ ] SVG logo export; manifest; OG image with the logo.
+- [x] Manifest; OG image with the logo.
+- [ ] SVG logo export (the 512px app icon is upscaled from a 118px mark).
 
 ## Phase 2 — Screens from the design
 
@@ -32,11 +33,14 @@ Source: "UseKollo MVP – Project Brief". Structure: reference project `chuksale
 - [x] Withdraw UI (form, review, submitting, complete, failed), Activity (+ empty), Profile Settings (+ no wallet)
 - [ ] Create Savings Goal · Goal Details · Add Savings flow · Withdrawal flow · Activity History
 
-## Phase 3 — Real transactions (needs DECISIONS D1, D2)
+## Phase 3 — Backend + real transactions · done (11 Nov 2026)
 
-- [ ] Implement the chosen funds model (`buildDepositTx`, `buildWithdrawTx`, goal creation if needed).
-- [ ] Move goal storage if D2 says so.
-- [ ] Trustline / balance / fee checks before signing; clear errors.
+- [x] UseKollo API client (`lib/api`), token refresh, errors written for users.
+- [x] Accounts on the API (sign up with name, verify, sign in, reset, profile, password, sign out everywhere).
+- [x] Wallet linking (challenge), balances from the API, USDC trustline; no Friendbot.
+- [x] Goals on the API: create + open (signed), pending / closed states, edit, delete, close.
+- [x] Add Savings / Withdraw via API-prepared transactions; withdraw locked until the target (DECISIONS D8).
+- [x] Metadata, favicon / icons / manifest, sitemap, branded OG image; loading, error and 404 pages; motion.
 
 ## Phase 4 — Verify & ship
 
